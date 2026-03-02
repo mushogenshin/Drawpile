@@ -690,7 +690,7 @@ MainWindow::MainWindow(bool restoreWindowPosition, bool singleSession)
 			Q_EMIT smallScreenPreviewRequested();
 		}
 	} else if(!m_chatbox->isCollapsed()) {
-		getAction("togglechat")->trigger();
+		setChatExpanded(false);
 	}
 }
 
@@ -1538,7 +1538,7 @@ void MainWindow::initSmallScreenState()
 		dw->hide();
 	}
 	m_splitter->setHandleWidth(0);
-	m_chatbox->hide();
+	setSmallScreenChatSize(0.0);
 	m_toolBarDraw->show();
 }
 
@@ -2163,6 +2163,44 @@ void MainWindow::reactToResize()
 		restoreIntendedDockState();
 		m_restoreIntendedDockStateDebounce.start();
 	}
+}
+
+void MainWindow::setChatExpanded(bool expanded)
+{
+	if(m_smallScreenMode) {
+		if(expanded != !m_chatbox->isCollapsed()) {
+			HudAction action;
+			action.type = HudAction::Type::ToggleChat;
+			handleToggleAction(action);
+		}
+	} else {
+		if(expanded) {
+			QByteArray state = dpAppConfig()->getLastWindowViewState();
+			if(!state.isEmpty()) {
+				m_splitter->restoreState(state);
+			}
+
+			if(m_chatbox->isCollapsed()) {
+				int h = height();
+				m_splitter->setSizes({h * 2 / 3, h / 3});
+			}
+
+			m_chatbox->focusInput();
+			m_saveSplitterDebounce.start();
+		} else {
+			saveSplitterState();
+			m_splitter->setSizes({1, 0});
+			m_canvasView->viewWidget()->setFocus();
+		}
+		getAction("togglechat")->setChecked(!m_chatbox->isCollapsed());
+	}
+}
+
+void MainWindow::setSmallScreenChatSize(qreal ratio)
+{
+	int h = height();
+	int bottom = qRound(h * ratio);
+	m_splitter->setSizes({h - bottom, bottom});
 }
 
 #if defined(Q_OS_ANDROID) && defined(KRITA_QT_SCREEN_DENSITY_ADJUSTMENT)
@@ -4431,7 +4469,7 @@ void MainWindow::onServerLogin(bool join, const QString &joinPassword)
 	getAction("reportabuse")->setEnabled(client->serverSupportsReports());
 	getAction("invitesession")->setEnabled(true);
 	if(m_chatbox->isCollapsed()) {
-		getAction("togglechat")->trigger();
+		setChatExpanded(true);
 	}
 	if(!join && dpAppConfig()->getShowInviteDialogOnHost()) {
 		invite();
@@ -4890,7 +4928,6 @@ void MainWindow::handleToggleAction(const HudAction &action)
 			{m_dockColorCircle, HudAction::Type::ToggleLayer},
 			{m_dockReference, HudAction::Type::ToggleLayer},
 			{m_dockLayers, HudAction::Type::ToggleLayer},
-			{m_chatbox, HudAction::Type::ToggleChat},
 		};
 		QVector<QWidget *> docksToShow;
 
@@ -4907,19 +4944,22 @@ void MainWindow::handleToggleAction(const HudAction &action)
 			}
 		}
 
+		bool chatWasExpanded = !m_chatbox->isCollapsed();
+		bool togglingChat = type == HudAction::Type::ToggleChat;
+		if(chatWasExpanded && togglingChat) {
+			setSmallScreenChatSize(0.0);
+		}
+
 		for(QWidget *dock : docksToShow) {
 			dock->show();
 		}
-		m_viewStatusBar->setVisible(docksToShow.isEmpty());
 
-		bool chatVisible = m_chatbox->isVisible();
-		QAction *togglechat = getAction("togglechat");
-		QSignalBlocker blocker{togglechat};
-		togglechat->setChecked(chatVisible);
-		if(chatVisible) {
-			int h = height();
-			int top = h / 2;
-			m_splitter->setSizes({top, h - top});
+		bool showingChat = !chatWasExpanded && togglingChat;
+		m_viewStatusBar->setVisible(docksToShow.isEmpty() && !showingChat);
+		getAction("togglechat")->setChecked(showingChat);
+
+		if (showingChat) {
+			setSmallScreenChatSize(0.5);
 		} else {
 			m_canvasView->viewWidget()->setFocus();
 		}
@@ -6808,32 +6848,8 @@ void MainWindow::setupActions()
 		m_chatbox, &widgets::ChatBox::expandPlease, toggleChat,
 		&QAction::trigger);
 
-	connect(toggleChat, &QAction::triggered, this, [this, cfg](bool show) {
-		if(m_smallScreenMode) {
-			HudAction action;
-			action.type = HudAction::Type::ToggleChat;
-			handleToggleAction(action);
-		} else {
-			if(show) {
-				QByteArray state = cfg->getLastWindowViewState();
-				if(!state.isEmpty()) {
-					m_splitter->restoreState(state);
-				}
-
-				if(m_chatbox->isCollapsed()) {
-					int h = height();
-					m_splitter->setSizes({h * 2 / 3, h / 3});
-				}
-
-				m_chatbox->focusInput();
-				m_saveSplitterDebounce.start();
-			} else {
-				saveSplitterState();
-				m_splitter->setSizes({1, 0});
-				m_canvasView->viewWidget()->setFocus();
-			}
-		}
-	});
+	connect(
+		toggleChat, &QAction::triggered, this, &MainWindow::setChatExpanded);
 	connect(
 		m_chatbox, &widgets::ChatBox::muteChanged, this,
 		&MainWindow::setNotificationsMuted);
@@ -8790,7 +8806,7 @@ void MainWindow::switchInterfaceMode(bool smallScreenMode)
 		removeToolBar(m_toolBarEdit);
 		m_splitter->setHandleWidth(0);
 		m_chatbox->setSmallScreenMode(true);
-		m_chatbox->hide();
+		setSmallScreenChatSize(0.0);
 		m_toolBarDraw->show();
 		m_viewStatusBar->show();
 		m_viewstatus->setHidden(true);
@@ -8838,7 +8854,7 @@ void MainWindow::switchInterfaceMode(bool smallScreenMode)
 		// Hide chat if not connected, since otherwise toggling to small-screen
 		// mode and back makes it pop up.
 		if(!m_chatbox->isCollapsed() && !m_doc->client()->isConnected()) {
-			getAction("togglechat")->trigger();
+			setChatExpanded(false);
 		}
 		updateIntendedDockState();
 	}

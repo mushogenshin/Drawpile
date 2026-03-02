@@ -457,6 +457,9 @@ private:
 	void keepCanvasPosition(const std::function<void()> &block);
 	void reactToResize();
 
+	void setChatExpanded(bool expanded);
+	void setSmallScreenChatSize(qreal ratio);
+
 #if defined(Q_OS_ANDROID) && defined(KRITA_QT_SCREEN_DENSITY_ADJUSTMENT)
 	void handleAndroidScalingDialogShown();
 	void handleAndroidScalingDialogDismissed();
