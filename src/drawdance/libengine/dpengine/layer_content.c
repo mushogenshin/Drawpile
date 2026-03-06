@@ -461,8 +461,6 @@ DP_UPixelFloat DP_layer_content_sample_color_at_sync(
     DP_LayerContent *(get_layer_content)(void *), void *user)
 {
     DP_ASSERT(stamp_buffer);
-    DP_ASSERT(in_out_last_diameter);
-    DP_ASSERT(out_in_bounds);
     DP_ASSERT(get_layer_content);
 
     bool in_bounds = false;
